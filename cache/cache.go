@@ -60,3 +60,75 @@ func Lookup(key string) string {
 	if err != nil {
 		return ""
 	}
+	digest, ok := idx.Entries[key]
+	if !ok {
+		return ""
+	}
+	if !store.LayerExists(digest) {
+		return ""
+	}
+	return digest
+}
+
+// Store saves a cache key -> layer digest mapping.
+func Store(key, digest string) error {
+	mu.Lock()
+	defer mu.Unlock()
+
+	if err := store.EnsureDirs(); err != nil {
+		return err
+	}
+	idx, err := loadIndex()
+	if err != nil {
+		return err
+	}
+	idx.Entries[key] = digest
+	return saveIndex(idx)
+}
+
+// ComputeCacheKey computes a deterministic cache key for a layer-producing instruction.
+//
+// key = SHA-256(prevDigest + instructionText + workdir + envState [+ fileHashes for COPY])
+func ComputeCacheKey(prevDigest, instructionText, workdir string, envState map[string]string, fileHashes map[string]string) string {
+	h := sha256.New()
+	h.Write([]byte(prevDigest))
+	h.Write([]byte(instructionText))
+	h.Write([]byte(workdir))
+	h.Write([]byte(serializeEnvState(envState)))
+	if fileHashes != nil {
+		h.Write([]byte(serializeFileHashes(fileHashes)))
+	}
+	return fmt.Sprintf("sha256:%x", h.Sum(nil))
+}
+
+func serializeEnvState(envState map[string]string) string {
+	if len(envState) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(envState))
+	for k := range envState {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var parts []string
+	for _, k := range keys {
+		parts = append(parts, k+"="+envState[k])
+	}
+	return strings.Join(parts, "\n")
+}
+
+func serializeFileHashes(fileHashes map[string]string) string {
+	if len(fileHashes) == 0 {
+		return ""
+	}
+	paths := make([]string, 0, len(fileHashes))
+	for p := range fileHashes {
+		paths = append(paths, p)
+	}
+	sort.Strings(paths)
+	var parts []string
+	for _, p := range paths {
+		parts = append(parts, fileHashes[p])
+	}
+	return strings.Join(parts, "")
+}
