@@ -132,3 +132,16 @@ func serializeFileHashes(fileHashes map[string]string) string {
 	}
 	return strings.Join(parts, "")
 }
+// HashFile computes the SHA-256 hex digest of a file's contents.
+func HashFile(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", fmt.Errorf("open file for hashing: %w", err)
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", fmt.Errorf("hash file: %w", err)
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
