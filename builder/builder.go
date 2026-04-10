@@ -69,3 +69,65 @@ func Build(instructions []parser.Instruction, opts BuildOptions) error {
 					envState[parts[0]] = parts[1]
 				}
 			}
+			if baseManifest.Config.WorkingDir != "" {
+				workdir = baseManifest.Config.WorkingDir
+			}
+			if len(baseManifest.Config.Cmd) > 0 {
+				cmdArgs = baseManifest.Config.Cmd
+			}
+
+			prevDigest = baseManifest.Digest
+
+			fmt.Printf("Step %d/%d : FROM %s:%s\n", stepNum, totalSteps, instr.FromImage, instr.FromTag)
+
+		case parser.InstrWORKDIR:
+			workdir = instr.Args
+			fmt.Printf("Step %d/%d : WORKDIR %s\n", stepNum, totalSteps, instr.Args)
+
+		case parser.InstrENV:
+			envState[instr.EnvKey] = instr.EnvValue
+			fmt.Printf("Step %d/%d : ENV %s=%s\n", stepNum, totalSteps, instr.EnvKey, instr.EnvValue)
+
+		case parser.InstrCMD:
+			cmdArgs = instr.CmdArgs
+			fmt.Printf("Step %d/%d : CMD %s\n", stepNum, totalSteps, instr.Args)
+
+		case parser.InstrCOPY:
+			stepStart := time.Now()
+
+			fileHashes, err := layer.GetSourceFileHashes(opts.ContextDir, instr.CopySrc)
+			if err != nil {
+				return fmt.Errorf("step %d/%d: COPY hash source files: %w", stepNum, totalSteps, err)
+			}
+
+			cacheKey := cache.ComputeCacheKey(prevDigest, instr.FullText, workdir, envState, fileHashes)
+
+			var layerDigest string
+			var cacheHit bool
+
+			if !cascadeMiss {
+				if digest := cache.Lookup(cacheKey); digest != "" {
+					layerDigest = digest
+					cacheHit = true
+				}
+			}
+
+			if !cacheHit {
+				cascadeMiss = true
+				allCacheHit = false
+
+				tarBytes, digest, err := layer.CreateCopyLayer(opts.ContextDir, instr.CopySrc, instr.CopyDst, workdir)
+				if err != nil {
+					return fmt.Errorf("step %d/%d: COPY: %w", stepNum, totalSteps, err)
+				}
+
+				if err := layer.StoreTar(tarBytes, digest); err != nil {
+					return fmt.Errorf("step %d/%d: store layer: %w", stepNum, totalSteps, err)
+				}
+
+				layerDigest = digest
+
+				if !opts.NoCache {
+					cache.Store(cacheKey, digest)
+				}
+			}
