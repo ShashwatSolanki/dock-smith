@@ -155,3 +155,89 @@ Options:
 	})
 }
 
+func runRun(args []string) (int, error) {
+	var (
+		envOverrides []string
+		imageRef     string
+		cmdOverride  []string
+	)
+
+	i := 0
+	for i < len(args) {
+		switch {
+		case args[i] == "-e":
+			if i+1 >= len(args) {
+				return 1, fmt.Errorf("-e requires KEY=VALUE argument")
+			}
+			i++
+			if !strings.Contains(args[i], "=") {
+				return 1, fmt.Errorf("-e requires KEY=VALUE format, got: %s", args[i])
+			}
+			envOverrides = append(envOverrides, args[i])
+		case args[i] == "--help" || args[i] == "-h":
+			fmt.Println(`Usage: docksmith run [-e KEY=VALUE]... <name:tag> [cmd...]
+
+Run a container from an image.
+
+Options:
+  -e KEY=VALUE   Override or add an environment variable (repeatable)`)
+			return 0, nil
+		case imageRef == "":
+			imageRef = args[i]
+		default:
+			cmdOverride = append(cmdOverride, args[i])
+		}
+		i++
+	}
+
+	if imageRef == "" {
+		return 1, fmt.Errorf("missing image reference: use name:tag")
+	}
+
+	name, tag := parseNameTag(imageRef)
+	return runtime.Run(name, tag, envOverrides, cmdOverride)
+}
+
+func runImages() error {
+	manifests, err := store.ListManifests()
+	if err != nil {
+		return err
+	}
+
+	if len(manifests) == 0 {
+		fmt.Println("No images found.")
+		return nil
+	}
+
+	fmt.Printf("%-20s %-15s %-14s %s\n", "NAME", "TAG", "ID", "CREATED")
+	fmt.Printf("%-20s %-15s %-14s %s\n", "----", "---", "--", "-------")
+
+	for _, m := range manifests {
+		shortID := manifest.ShortID(m)
+		fmt.Printf("%-20s %-15s %-14s %s\n", m.Name, m.Tag, shortID, m.Created)
+	}
+
+	return nil
+}
+
+func runRmi(args []string) error {
+	if len(args) == 0 {
+		return fmt.Errorf("missing image reference: use name:tag")
+	}
+
+	if args[0] == "--help" || args[0] == "-h" {
+		fmt.Println(`Usage: docksmith rmi <name:tag>
+
+Remove an image manifest and all of its layer files from disk.`)
+		return nil
+	}
+
+	name, tag := parseNameTag(args[0])
+
+	if err := store.RemoveImage(name, tag); err != nil {
+		return fmt.Errorf("remove image %s:%s: %w", name, tag, err)
+	}
+
+	fmt.Printf("Removed image %s:%s\n", name, tag)
+	return nil
+}
