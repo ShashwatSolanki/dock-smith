@@ -312,3 +312,100 @@ func extractTar(tarPath, targetDir string) error {
 	}
 	return nil
 }
+
+func resolveSourceFiles(contextDir, src string) ([]string, error) {
+	if strings.ContainsAny(src, "*?[]") {
+		// Support both '*' and recursive '**' globs as required by the spec.
+		matches, err := globUnderDir(contextDir, src)
+		if err != nil {
+			return nil, fmt.Errorf("glob %s: %w", src, err)
+		}
+		return matches, nil
+	}
+
+	fullPath := filepath.Join(contextDir, src)
+	fi, err := os.Stat(fullPath)
+	if err != nil {
+		return nil, fmt.Errorf("source %s not found: %w", src, err)
+	}
+
+	if fi.IsDir() {
+		var files []string
+		filepath.Walk(fullPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			relPath, _ := filepath.Rel(fullPath, path)
+			relPath = filepath.ToSlash(relPath)
+			if relPath == "." {
+				return nil
+			}
+			base := filepath.Base(path)
+			if base == "Docksmithfile" || base == ".git" || base == ".docksmith" {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+			if !info.IsDir() {
+				files = append(files, path)
+			}
+			return nil
+		})
+		return files, nil
+	}
+
+	return []string{fullPath}, nil
+}
+
+func addDirFilesToTar(tw *tar.Writer, srcDir, tarBase string) error {
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return err
+	}
+
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	sort.Strings(names)
+
+	for _, name := range names {
+		childPath := filepath.Join(srcDir, name)
+		childTarPath := tarBase + "/" + name
+		if tarBase == "" {
+			childTarPath = name
+		}
+
+		info, err := os.Stat(childPath)
+		if err != nil {
+			continue
+		}
+		if info.IsDir() {
+			if err := addDirFilesToTar(tw, childPath, childTarPath); err != nil {
+				return err
+			}
+			continue
+		}
+
+		data, err := os.ReadFile(childPath)
+		if err != nil {
+			continue
+		}
+		hdr := &tar.Header{
+			Name:    filepath.ToSlash(childTarPath),
+			Size:    int64(len(data)),
+			Mode:    int64(info.Mode().Perm()),
+			ModTime: zeroTime,
+			Uid:     0,
+			Gid:     0,
+		}
+		if err := tw.WriteHeader(hdr); err != nil {
+			return err
+		}
+		if _, err := tw.Write(data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
