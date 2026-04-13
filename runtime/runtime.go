@@ -110,3 +110,76 @@ func ChildProcess(args []string) error {
 	}
 	return nil
 }
+
+// AssembleFilesystem extracts all layers in order into a temp directory.
+func AssembleFilesystem(m *manifest.Manifest) (string, error) {
+	tmpDir, err := os.MkdirTemp("", "docksmith-run-*")
+	if err != nil {
+		return "", fmt.Errorf("create temp dir: %w", err)
+	}
+
+	digests := make([]string, len(m.Layers))
+	for i, l := range m.Layers {
+		digests[i] = l.Digest
+	}
+
+	if err := layer.ExtractLayers(tmpDir, digests); err != nil {
+		os.RemoveAll(tmpDir)
+		return "", fmt.Errorf("extract layers: %w", err)
+	}
+
+	return tmpDir, nil
+}
+
+// Run executes a container from an image (called by `docksmith run`).
+func Run(name, tag string, envOverrides []string, cmdOverride []string) (int, error) {
+	m, err := store.LoadManifest(name, tag)
+	if err != nil {
+		return 1, err
+	}
+
+	// Determine command.
+	cmd := m.Config.Cmd
+	if len(cmdOverride) > 0 {
+		cmd = cmdOverride
+	}
+	if len(cmd) == 0 {
+		return 1, fmt.Errorf("no CMD defined in image %s:%s and no command given", name, tag)
+	}
+
+	// Build environment: image ENV + overrides.
+	envMap := make(map[string]string)
+	for _, e := range m.Config.Env {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+	for _, e := range envOverrides {
+		parts := strings.SplitN(e, "=", 2)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+	var envVars []string
+	for k, v := range envMap {
+		envVars = append(envVars, k+"="+v)
+	}
+	if _, ok := envMap["PATH"]; !ok {
+		envVars = append(envVars, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+	}
+
+	// Assemble filesystem.
+	rootDir, err := AssembleFilesystem(m)
+	if err != nil {
+		return 1, err
+	}
+	defer os.RemoveAll(rootDir)
+
+	workdir := m.Config.WorkingDir
+	if workdir == "" {
+		workdir = "/"
+	}
+
+	return RunIsolated(rootDir, cmd, workdir, envVars, false)
+}
