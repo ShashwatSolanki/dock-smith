@@ -209,3 +209,106 @@ func CreateRunLayer(rootDir string, beforeSnapshot map[string]string) ([]byte, s
 	digest := computeDigest(tarBytes)
 	return tarBytes, digest, nil
 }
+
+func SnapshotDir(rootDir string) (map[string]string, error) {
+	snapshot := make(map[string]string)
+	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		relPath, err := filepath.Rel(rootDir, path)
+		if err != nil {
+			return nil
+		}
+		relPath = filepath.ToSlash(relPath)
+		if relPath == "." {
+			return nil
+		}
+		if relPath == "proc" || strings.HasPrefix(relPath, "proc/") ||
+			relPath == "dev" || strings.HasPrefix(relPath, "dev/") ||
+			relPath == "sys" || strings.HasPrefix(relPath, "sys/") {
+			return nil
+		}
+		if info.IsDir() {
+			snapshot[relPath] = "dir"
+		} else {
+			hash, err := hashFileContents(path)
+			if err != nil {
+				snapshot[relPath] = ""
+			} else {
+				snapshot[relPath] = hash
+			}
+		}
+		return nil
+	})
+	return snapshot, err
+}
+
+// StoreTar writes tar bytes to the layer store.
+func StoreTar(tarBytes []byte, digest string) error {
+	if err := store.EnsureDirs(); err != nil {
+		return err
+	}
+	path := store.LayerPath(digest)
+	if _, err := os.Stat(path); err == nil {
+		return nil // immutable — already exists
+	}
+	return os.WriteFile(path, tarBytes, 0644)
+}
+
+// ExtractLayers extracts layer tars in order into a target directory.
+func ExtractLayers(targetDir string, digests []string) error {
+	for _, digest := range digests {
+		tarPath := store.LayerPath(digest)
+		if err := extractTar(tarPath, targetDir); err != nil {
+			return fmt.Errorf("extract layer %s: %w", digest, err)
+		}
+	}
+	return nil
+}
+
+func extractTar(tarPath, targetDir string) error {
+	f, err := os.Open(tarPath)
+	if err != nil {
+		return fmt.Errorf("open tar %s: %w", tarPath, err)
+	}
+	defer f.Close()
+
+	tr := tar.NewReader(f)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read tar entry: %w", err)
+		}
+
+		cleanName := filepath.Clean(hdr.Name)
+		if strings.HasPrefix(cleanName, "..") {
+			continue
+		}
+		target := filepath.Join(targetDir, cleanName)
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			os.MkdirAll(target, os.FileMode(hdr.Mode))
+		case tar.TypeReg:
+			os.MkdirAll(filepath.Dir(target), 0755)
+			outFile, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(hdr.Mode))
+			if err != nil {
+				return fmt.Errorf("create file %s: %w", target, err)
+			}
+			io.Copy(outFile, tr)
+			outFile.Close()
+		case tar.TypeSymlink:
+			os.Remove(target)
+			os.Symlink(hdr.Linkname, target)
+		case tar.TypeLink:
+			linkTarget := filepath.Join(targetDir, filepath.Clean(hdr.Linkname))
+			os.Remove(target)
+			os.Link(linkTarget, target)
+		}
+	}
+	return nil
+}
