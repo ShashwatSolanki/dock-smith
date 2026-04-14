@@ -241,3 +241,96 @@ Remove an image manifest and all of its layer files from disk.`)
 	fmt.Printf("Removed image %s:%s\n", name, tag)
 	return nil
 }
+
+func runImport(args []string) error {
+	var (
+		name    string
+		tag     string
+		tarPath string
+	)
+
+	i := 0
+	for i < len(args) {
+		switch args[i] {
+		case "-t":
+			if i+1 >= len(args) {
+				return fmt.Errorf("-t requires a name:tag argument")
+			}
+			i++
+			name, tag = parseNameTag(args[i])
+		case "--help", "-h":
+			fmt.Println(`Usage: docksmith import -t <name:tag> <rootfs.tar>
+
+Import a base image from a root filesystem tarball.`)
+			return nil
+		default:
+			if tarPath == "" {
+				tarPath = args[i]
+			} else {
+				return fmt.Errorf("unexpected argument: %s", args[i])
+			}
+		}
+		i++
+	}
+
+	if name == "" {
+		return fmt.Errorf("missing -t flag: use -t name:tag")
+	}
+	if tarPath == "" {
+		return fmt.Errorf("missing rootfs tarball path")
+	}
+
+	if err := store.EnsureDirs(); err != nil {
+		return err
+	}
+
+	srcData, err := os.ReadFile(tarPath)
+	if err != nil {
+		return fmt.Errorf("read tarball: %w", err)
+	}
+
+	normalizedTar, err := normalizeTar(srcData)
+	if err != nil {
+		return fmt.Errorf("normalise tarball: %w", err)
+	}
+
+	hash := sha256.Sum256(normalizedTar)
+	digest := fmt.Sprintf("sha256:%x", hash)
+
+	layerPath := store.LayerPath(digest)
+	if _, err := os.Stat(layerPath); os.IsNotExist(err) {
+		if err := os.WriteFile(layerPath, normalizedTar, 0644); err != nil {
+			return fmt.Errorf("write layer: %w", err)
+		}
+	}
+
+	fi, err := os.Stat(layerPath)
+	if err != nil {
+		return fmt.Errorf("stat layer: %w", err)
+	}
+
+	m := &manifest.Manifest{
+		Name:    name,
+		Tag:     tag,
+		Created: time.Now().UTC().Format(time.RFC3339),
+		Config: manifest.Config{
+			Env:        []string{},
+			Cmd:        []string{},
+			WorkingDir: "",
+		},
+		Layers: []manifest.Layer{
+			{
+				Digest:    digest,
+				Size:      fi.Size(),
+				CreatedBy: fmt.Sprintf("import %s", filepath.Base(tarPath)),
+			},
+		},
+	}
+
+	if err := store.SaveManifest(m); err != nil {
+		return fmt.Errorf("save manifest: %w", err)
+	}
+
+	fmt.Printf("Imported %s:%s (layer %s, %d bytes)\n", name, tag, digest[:19], fi.Size())
+	return nil
+}
