@@ -131,3 +131,65 @@ func Build(instructions []parser.Instruction, opts BuildOptions) error {
 					cache.Store(cacheKey, digest)
 				}
 			}
+
+			layerSize := int64(0)
+			if fi, err := os.Stat(store.LayerPath(layerDigest)); err == nil {
+				layerSize = fi.Size()
+			}
+
+			layers = append(layers, manifest.Layer{
+				Digest:    layerDigest,
+				Size:      layerSize,
+				CreatedBy: instr.FullText,
+			})
+			prevDigest = layerDigest
+
+			elapsed := time.Since(stepStart)
+			if cacheHit {
+				fmt.Printf("Step %d/%d : %s [CACHE HIT] %.2fs\n", stepNum, totalSteps, instr.FullText, elapsed.Seconds())
+			} else {
+				fmt.Printf("Step %d/%d : %s [CACHE MISS] %.2fs\n", stepNum, totalSteps, instr.FullText, elapsed.Seconds())
+			}
+
+		case parser.InstrRUN:
+			stepStart := time.Now()
+
+			cacheKey := cache.ComputeCacheKey(prevDigest, instr.FullText, workdir, envState, nil)
+
+			var layerDigest string
+			var cacheHit bool
+
+			if !cascadeMiss {
+				if digest := cache.Lookup(cacheKey); digest != "" {
+					layerDigest = digest
+					cacheHit = true
+				}
+			}
+
+			if !cacheHit {
+				cascadeMiss = true
+				allCacheHit = false
+
+				tmpRoot, err := os.MkdirTemp("", "docksmith-build-*")
+				if err != nil {
+					return fmt.Errorf("step %d/%d: create temp dir: %w", stepNum, totalSteps, err)
+				}
+
+				digests := make([]string, len(layers))
+				for j, l := range layers {
+					digests[j] = l.Digest
+				}
+				if err := layer.ExtractLayers(tmpRoot, digests); err != nil {
+					os.RemoveAll(tmpRoot)
+					return fmt.Errorf("step %d/%d: extract layers: %w", stepNum, totalSteps, err)
+				}
+
+				if workdir != "" {
+					os.MkdirAll(filepath.Join(tmpRoot, workdir), 0755)
+				}
+
+				beforeSnapshot, err := layer.SnapshotDir(tmpRoot)
+				if err != nil {
+					os.RemoveAll(tmpRoot)
+					return fmt.Errorf("step %d/%d: snapshot before RUN: %w", stepNum, totalSteps, err)
+				}
