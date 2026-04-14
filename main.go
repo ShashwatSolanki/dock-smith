@@ -334,3 +334,82 @@ Import a base image from a root filesystem tarball.`)
 	fmt.Printf("Imported %s:%s (layer %s, %d bytes)\n", name, tag, digest[:19], fi.Size())
 	return nil
 }
+
+func parseNameTag(nameTag string) (string, string) {
+	for i := len(nameTag) - 1; i >= 0; i-- {
+		if nameTag[i] == ':' {
+			return nameTag[:i], nameTag[i+1:]
+		}
+	}
+	return nameTag, "latest"
+}
+
+func normalizeTar(srcData []byte) ([]byte, error) {
+	type tarEntry struct {
+		Header *tar.Header
+		Data   []byte
+	}
+
+	tr := tar.NewReader(bytes.NewReader(srcData))
+	var entries []tarEntry
+
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read tar entry: %w", err)
+		}
+
+		cleanHdr := &tar.Header{
+			Typeflag: hdr.Typeflag,
+			Name:     filepath.ToSlash(hdr.Name),
+			Linkname: hdr.Linkname,
+			Size:     hdr.Size,
+			Mode:     hdr.Mode,
+			Uid:      0,
+			Gid:      0,
+			ModTime:  time.Time{},
+		}
+
+		cleanHdr.Name = strings.TrimPrefix(cleanHdr.Name, "./")
+		if cleanHdr.Name == "" || cleanHdr.Name == "." {
+			continue
+		}
+
+		var data []byte
+		if hdr.Size > 0 {
+			data = make([]byte, hdr.Size)
+			if _, err := io.ReadFull(tr, data); err != nil {
+				return nil, fmt.Errorf("read file data for %s: %w", hdr.Name, err)
+			}
+		}
+
+		entries = append(entries, tarEntry{Header: cleanHdr, Data: data})
+	}
+
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].Header.Name < entries[j].Header.Name
+	})
+
+	var buf bytes.Buffer
+	tw := tar.NewWriter(&buf)
+
+	for _, entry := range entries {
+		if err := tw.WriteHeader(entry.Header); err != nil {
+			return nil, fmt.Errorf("write header for %s: %w", entry.Header.Name, err)
+		}
+		if len(entry.Data) > 0 {
+			if _, err := tw.Write(entry.Data); err != nil {
+				return nil, fmt.Errorf("write data for %s: %w", entry.Header.Name, err)
+			}
+		}
+	}
+
+	if err := tw.Close(); err != nil {
+		return nil, fmt.Errorf("close tar writer: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
