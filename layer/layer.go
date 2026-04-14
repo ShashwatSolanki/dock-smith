@@ -409,3 +409,61 @@ func addDirFilesToTar(tw *tar.Writer, srcDir, tarBase string) error {
 	}
 	return nil
 }
+
+func ensureParentDirs(tw *tar.Writer, entryPath string, addedDirs map[string]bool) {
+	parts := strings.Split(entryPath, "/")
+	for i := 1; i < len(parts); i++ {
+		dirPath := strings.Join(parts[:i], "/")
+		if dirPath == "" {
+			continue
+		}
+		if !addedDirs[dirPath] {
+			hdr := &tar.Header{
+				Typeflag: tar.TypeDir,
+				Name:     dirPath + "/",
+				Mode:     0755,
+				ModTime:  zeroTime,
+				Uid:      0,
+				Gid:      0,
+			}
+			_ = tw.WriteHeader(hdr)
+			addedDirs[dirPath] = true
+		}
+	}
+}
+
+// globUnderDir matches files under baseDir against a pattern that may include '**'.
+// Pattern syntax is the same as filepath.Match for segments, plus:
+// - '**' matches zero or more path segments.
+func globUnderDir(baseDir, pattern string) ([]string, error) {
+	pat := filepath.ToSlash(pattern)
+	pat = strings.TrimPrefix(pat, "./")
+
+	var matches []string
+	err := filepath.Walk(baseDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(baseDir, path)
+		if err != nil {
+			return nil
+		}
+		rel = filepath.ToSlash(rel)
+		ok, err := matchGlob(pat, rel)
+		if err != nil {
+			return err
+		}
+		if ok {
+			matches = append(matches, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(matches)
+	return matches, nil
+}
