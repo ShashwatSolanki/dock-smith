@@ -467,3 +467,93 @@ func globUnderDir(baseDir, pattern string) ([]string, error) {
 	sort.Strings(matches)
 	return matches, nil
 }
+
+func matchGlob(pattern, path string) (bool, error) {
+	pSegs := splitPathSegments(pattern)
+	sSegs := splitPathSegments(path)
+	return matchSegments(pSegs, sSegs)
+}
+
+func splitPathSegments(s string) []string {
+	s = strings.Trim(s, "/")
+	if s == "" {
+		return nil
+	}
+	return strings.Split(s, "/")
+}
+
+func matchSegments(pat, segs []string) (bool, error) {
+	if len(pat) == 0 {
+		return len(segs) == 0, nil
+	}
+
+	if pat[0] == "**" {
+		// '**' matches zero or more segments.
+		// Try zero segments first (greedy vs non-greedy doesn't matter for boolean match).
+		if ok, err := matchSegments(pat[1:], segs); err != nil {
+			return false, err
+		} else if ok {
+			return true, nil
+		}
+		for i := 0; i < len(segs); i++ {
+			if ok, err := matchSegments(pat[1:], segs[i+1:]); err != nil {
+				return false, err
+			} else if ok {
+				return true, nil
+			}
+		}
+		return false, nil
+	}
+
+	if len(segs) == 0 {
+		return false, nil
+	}
+
+	ok, err := filepath.Match(pat[0], segs[0])
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	return matchSegments(pat[1:], segs[1:])
+}
+
+func computeDigest(data []byte) string {
+	hash := sha256.Sum256(data)
+	return fmt.Sprintf("sha256:%x", hash)
+}
+
+func hashFileContents(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	io.Copy(h, f)
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
+}
+
+// GetSourceFileHashes returns sorted map of file path -> content hash for COPY cache keys.
+func GetSourceFileHashes(contextDir, src string) (map[string]string, error) {
+	files, err := resolveSourceFiles(contextDir, src)
+	if err != nil {
+		return nil, err
+	}
+	sort.Strings(files)
+	hashes := make(map[string]string)
+	for _, f := range files {
+		relPath, err := filepath.Rel(contextDir, f)
+		if err != nil {
+			relPath = f
+		}
+		relPath = filepath.ToSlash(relPath)
+		hash, err := hashFileContents(f)
+		if err != nil {
+			return nil, fmt.Errorf("hash file %s: %w", f, err)
+		}
+		hashes[relPath] = hash
+	}
+	return hashes, nil
+}
