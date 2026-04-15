@@ -193,3 +193,100 @@ func Build(instructions []parser.Instruction, opts BuildOptions) error {
 					os.RemoveAll(tmpRoot)
 					return fmt.Errorf("step %d/%d: snapshot before RUN: %w", stepNum, totalSteps, err)
 				}
+
+				var envVars []string
+				for k, v := range envState {
+					envVars = append(envVars, k+"="+v)
+				}
+				sort.Strings(envVars)
+				if _, ok := envState["PATH"]; !ok {
+					envVars = append(envVars, "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
+				}
+
+				exitCode, err := runtime.RunIsolated(tmpRoot, []string{instr.Args}, workdir, envVars, true)
+				if err != nil {
+					os.RemoveAll(tmpRoot)
+					return fmt.Errorf("step %d/%d: RUN failed: %w", stepNum, totalSteps, err)
+				}
+				if exitCode != 0 {
+					os.RemoveAll(tmpRoot)
+					return fmt.Errorf("step %d/%d: RUN command exited with code %d", stepNum, totalSteps, exitCode)
+				}
+
+				tarBytes, digest, err := layer.CreateRunLayer(tmpRoot, beforeSnapshot)
+				if err != nil {
+					os.RemoveAll(tmpRoot)
+					return fmt.Errorf("step %d/%d: create RUN layer: %w", stepNum, totalSteps, err)
+				}
+
+				if err := layer.StoreTar(tarBytes, digest); err != nil {
+					os.RemoveAll(tmpRoot)
+					return fmt.Errorf("step %d/%d: store RUN layer: %w", stepNum, totalSteps, err)
+				}
+
+				layerDigest = digest
+				os.RemoveAll(tmpRoot)
+
+				if !opts.NoCache {
+					cache.Store(cacheKey, digest)
+				}
+			}
+
+			layerSize := int64(0)
+			if fi, err := os.Stat(store.LayerPath(layerDigest)); err == nil {
+				layerSize = fi.Size()
+			}
+
+			layers = append(layers, manifest.Layer{
+				Digest:    layerDigest,
+				Size:      layerSize,
+				CreatedBy: instr.FullText,
+			})
+			prevDigest = layerDigest
+
+			elapsed := time.Since(stepStart)
+			if cacheHit {
+				fmt.Printf("Step %d/%d : %s [CACHE HIT] %.2fs\n", stepNum, totalSteps, instr.FullText, elapsed.Seconds())
+			} else {
+				fmt.Printf("Step %d/%d : %s [CACHE MISS] %.2fs\n", stepNum, totalSteps, instr.FullText, elapsed.Seconds())
+			}
+		}
+	}
+
+	// Build ENV list for manifest config.
+	var envList []string
+	envKeys := make([]string, 0, len(envState))
+	for k := range envState {
+		envKeys = append(envKeys, k)
+	}
+	sort.Strings(envKeys)
+	for _, k := range envKeys {
+		envList = append(envList, k+"="+envState[k])
+	}
+
+	created := time.Now().UTC().Format(time.RFC3339)
+	if allCacheHit && existingCreated != "" {
+		created = existingCreated
+	}
+
+	m := &manifest.Manifest{
+		Name:    opts.Name,
+		Tag:     opts.Tag,
+		Created: created,
+		Config: manifest.Config{
+			Env:        envList,
+			Cmd:        cmdArgs,
+			WorkingDir: workdir,
+		},
+		Layers: layers,
+	}
+
+	if err := store.SaveManifest(m); err != nil {
+		return fmt.Errorf("save manifest: %w", err)
+	}
+
+	totalElapsed := time.Since(buildStart)
+	fmt.Printf("Successfully built %s %s:%s (%.2fs)\n", manifest.ShortID(m), opts.Name, opts.Tag, totalElapsed.Seconds())
+
+	return nil
+}
