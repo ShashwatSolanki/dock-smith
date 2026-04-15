@@ -413,3 +413,15 @@ func normalizeTar(srcData []byte) ([]byte, error) {
 
 	return buf.Bytes(), nil
 }
+
+// helpers
+
+func parseNameTag(nameTag string) (string, string) {
+	for i := len(nameTag) - 1; i >= 0; i-- {
+		if nameTag[i] == ':' {
+			return nameTag[:i], nameTag[i+1:]
+		}
+	}
+	return nameTag, "latest"
+}
+
