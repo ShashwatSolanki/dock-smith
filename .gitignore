@@ -1,0 +1,28 @@
+# Binaries
+docksmith
+*.exe
+*.out
+
+# Temp files
+*.tar
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# PDF specs (optional - keep if you want them in repo)
+# *.pdf
+
+# Extracted text specs
+*_spec.txt
+
+
+#sample app
+/sample-app 
