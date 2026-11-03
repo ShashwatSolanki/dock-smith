@@ -1,0 +1,33 @@
+name: Docksmith CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22.x"
+      - name: Prepare legacy GOPATH layout
+        run: |
+          mkdir -p "$(go env GOPATH)/src/docksmith"
+          cp -R "$GITHUB_WORKSPACE"/. "$(go env GOPATH)/src/docksmith/"
+      - name: Run Go tests
+        working-directory: ~/go/src/docksmith
+        env:
+          GO111MODULE: "off"
+        run: go test ./...
+      - name: Build CLI
+        working-directory: ~/go/src/docksmith
+        env:
+          GO111MODULE: "off"
+        run: go build -o /tmp/docksmith .
