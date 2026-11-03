@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="460" viewBox="0 0 1120 460" role="img" aria-labelledby="title desc">
+  <title id="title">Docksmith architecture</title>
+  <desc id="desc">Docksmith parses a Docksmithfile, builds immutable SHA-256-addressed layers, caches build steps, assembles a root filesystem and launches isolated processes with Linux namespaces and chroot.</desc>
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#75d6b0"/>
+      <stop offset="1" stop-color="#6cadff"/>
+    </linearGradient>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#718096"/>
+    </marker>
+    <style>
+      .bg{fill:#0d1117;stroke:#30363d;stroke-width:2}
+      .panel{fill:#151b23;stroke:#364152;stroke-width:1.5}
+      .accent{fill:#122b2a;stroke:#3e927c;stroke-width:1.5}
+      .title{fill:#f0f6fc;font:700 25px 'Segoe UI',Arial,sans-serif}
+      .label{fill:#e6edf3;font:600 17px 'Segoe UI',Arial,sans-serif}
+      .small{fill:#9daab8;font:14px 'Segoe UI',Arial,sans-serif}
+      .mono{fill:#9bd8c5;font:13px 'Consolas',monospace}
+      .arrow{stroke:#718096;stroke-width:2.2;fill:none;marker-end:url(#arrow)}
+      .section{fill:#7e8ea2;font:600 13px 'Segoe UI',Arial,sans-serif;letter-spacing:2px}
+    </style>
+  </defs>
+  <rect class="bg" x="1" y="1" width="1118" height="458" rx="18"/>
+  <text class="section" x="36" y="42">BUILD PIPELINE</text>
+  <text class="title" x="36" y="80">From build instructions to immutable images</text>
+  <rect class="panel" x="36" y="115" width="200" height="88" rx="12"/>
+  <text class="label" x="136" y="151" text-anchor="middle">Docksmithfile</text>
+  <text class="small" x="136" y="177" text-anchor="middle">FROM · COPY · RUN · ENV</text>
+  <path class="arrow" d="M236 159 H285"/>
+  <rect class="panel" x="291" y="115" width="190" height="88" rx="12"/>
+  <text class="label" x="386" y="151" text-anchor="middle">Parser</text>
+  <text class="small" x="386" y="177" text-anchor="middle">Typed instructions</text>
+  <path class="arrow" d="M481 159 H530"/>
+  <rect class="accent" x="536" y="115" width="210" height="88" rx="12"/>
+  <text class="label" x="641" y="151" text-anchor="middle">Build engine</text>
+  <text class="small" x="641" y="177" text-anchor="middle">Layer + cache decisions</text>
+  <path class="arrow" d="M746 159 H795"/>
+  <rect class="panel" x="801" y="115" width="280" height="88" rx="12"/>
+  <text class="label" x="941" y="151" text-anchor="middle">Content-addressed storage</text>
+  <text class="mono" x="941" y="177" text-anchor="middle">SHA-256 · immutable layers</text>
+  <path class="arrow" d="M941 203 V260"/>
+  <text class="section" x="36" y="252">RUNTIME PIPELINE</text>
+  <rect class="panel" x="801" y="270" width="280" height="92" rx="12"/>
+  <text class="label" x="941" y="307" text-anchor="middle">Image assembly</text>
+  <text class="small" x="941" y="334" text-anchor="middle">Manifest + ordered layers</text>
+  <path class="arrow" d="M801 316 H746"/>
+  <rect class="accent" x="536" y="270" width="210" height="92" rx="12"/>
+  <text class="label" x="641" y="307" text-anchor="middle">Linux isolation</text>
+  <text class="small" x="641" y="334" text-anchor="middle">Namespaces + chroot</text>
+  <path class="arrow" d="M536 316 H481"/>
+  <rect class="panel" x="291" y="270" width="190" height="92" rx="12"/>
+  <text class="label" x="386" y="307" text-anchor="middle">Process execution</text>
+  <text class="small" x="386" y="334" text-anchor="middle">CMD / runtime command</text>
+  <path class="arrow" d="M291 316 H236"/>
+  <rect class="panel" x="36" y="270" width="200" height="92" rx="12"/>
+  <text class="label" x="136" y="307" text-anchor="middle">CLI</text>
+  <text class="small" x="136" y="334" text-anchor="middle">build · run · images · rmi</text>
+  <text class="small" x="36" y="416">Designed as a learning-oriented container builder and runtime — not a drop-in Docker replacement.</text>
+</svg>
