@@ -22,12 +22,14 @@ jobs:
           mkdir -p "$(go env GOPATH)/src/docksmith"
           cp -R "$GITHUB_WORKSPACE"/. "$(go env GOPATH)/src/docksmith/"
       - name: Run Go tests
-        working-directory: ~/go/src/docksmith
         env:
           GO111MODULE: "off"
-        run: go test ./...
+        run: |
+          cd "$(go env GOPATH)/src/docksmith"
+          go test ./...
       - name: Build CLI
-        working-directory: ~/go/src/docksmith
         env:
           GO111MODULE: "off"
-        run: go build -o /tmp/docksmith .
+        run: |
+          cd "$(go env GOPATH)/src/docksmith"
+          go build -o /tmp/docksmith .
