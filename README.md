@@ -1,5 +1,14 @@
 # Docksmith
 
+<div align="center">
+
+  <img src="https://raw.githubusercontent.com/ShashwatSolanki/dock-smith/main/docs/docksmith-architecture.svg" alt="Docksmith build and runtime architecture" width="920" />
+
+  [![CI](https://github.com/ShashwatSolanki/dock-smith/actions/workflows/ci.yml/badge.svg)](https://github.com/ShashwatSolanki/dock-smith/actions/workflows/ci.yml)
+  <a href="https://shashwatsolanki.github.io/ShashwatSolanki/#work">Portfolio preview &amp; project overview</a>
+
+</div>
+
 A simplified **Docker-like build and container runtime system** built from scratch in Go.
 
 Docksmith is designed to help understand how modern container systems work internally — including **layered images, build caching, and process isolation** — without relying on Docker or any existing container runtime.
